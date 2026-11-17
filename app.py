@@ -22,561 +22,589 @@ from database import (
     save_message,
 )
 from predictor import load_artifacts, predict_email
-from security import generate_tracking_code, hash_tracking_code, verify_admin_password
+from security import (
+    generate_tracking_code,
+    hash_tracking_code,
+    verify_admin_password,
+)
 
+
+# =========================================================
+# KONFIGURASI
+# =========================================================
 
 APP_DIR = Path(__file__).resolve().parent
 
-EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+EMAIL_RE = re.compile(
+    r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+)
+
 MAX_BODY_CHARS = 30000
 MAX_SUBJECT_CHARS = 250
 
 
 # =========================================================
 # CONTOH EMAIL
-# Catatan:
-# Isi contoh tetap menggunakan Bahasa Inggris karena model
-# Logistic Regression Kelompok 6 dilatih menggunakan dataset
-# Enron berbahasa Inggris.
 # =========================================================
 
 SAMPLES = {
-    "HAM · Agenda Rapat Proyek": {
+    "Agenda rapat proyek": {
         "sender_name": "Alex Morgan",
         "sender_email": "alex.morgan@example.com",
         "recipient_email": "team@example.edu",
         "subject": "Project Meeting Agenda for Friday",
         "body": (
-            "Dear team, please review the attached agenda before our project meeting "
-            "on Friday at 10 AM. We will discuss the progress report and assign tasks "
-            "for next week. Regards, Alex."
+            "Dear team, please review the attached agenda before our "
+            "project meeting on Friday at 10 AM. We will discuss the "
+            "progress report and assign tasks for next week. Regards, Alex."
         ),
     },
-    "HAM · Jadwal Perkuliahan": {
+
+    "Jadwal perkuliahan": {
         "sender_name": "Academic Office",
         "sender_email": "academic.office@example.edu",
         "recipient_email": "students@example.edu",
         "subject": "Updated Course Schedule",
         "body": (
-            "Dear students, the updated lecture schedule for next week is now available. "
-            "Please check the department website for room changes and contact the "
-            "administration office if you have questions."
+            "Dear students, the updated lecture schedule for next week "
+            "is now available. Please check the department website for "
+            "room changes and contact the administration office if you "
+            "have questions."
         ),
     },
-    "HAM · Laporan Triwulanan": {
+
+    "Laporan proyek": {
         "sender_name": "Michael Brown",
         "sender_email": "michael.brown@example.com",
         "recipient_email": "john@example.com",
         "subject": "Quarterly Report Review",
         "body": (
-            "Hi John, could you review the attached quarterly report before Thursday? "
-            "Please add your comments to the shared document. Thank you."
+            "Hi John, could you review the attached quarterly report "
+            "before Thursday? Please add your comments to the shared "
+            "document. Thank you."
         ),
     },
-    "HAM · Seminar Penelitian": {
+
+    "Undangan seminar": {
         "sender_name": "Research Office",
         "sender_email": "research.office@example.edu",
         "recipient_email": "faculty@example.edu",
         "subject": "Invitation to Research Seminar",
         "body": (
-            "Dear colleagues, you are invited to attend the research seminar on Wednesday "
-            "at 2 PM in Room 204. The speaker will present the latest project findings. "
-            "Please register with the department secretary."
+            "Dear colleagues, you are invited to attend the research "
+            "seminar on Wednesday at 2 PM in Room 204. The speaker will "
+            "present the latest project findings. Please register with "
+            "the department secretary."
         ),
     },
-    "SPAM · Pemenang Hadiah Gratis": {
+
+    "Hadiah gratis": {
         "sender_name": "Lucky Rewards",
         "sender_email": "winner@promo-example.com",
         "recipient_email": "user@example.com",
         "subject": "Congratulations! You Have Won a Free Gift",
         "body": (
-            "You have been selected to receive a free luxury gift card. Claim your prize "
-            "now by clicking the link below. This limited offer expires today. No purchase necessary!"
+            "You have been selected to receive a free luxury gift card. "
+            "Claim your prize now by clicking the link below. This "
+            "limited offer expires today. No purchase necessary!"
         ),
     },
-    "SPAM · Penangguhan Akun": {
+
+    "Verifikasi akun": {
         "sender_name": "Account Security",
         "sender_email": "security-alert@unknown-example.com",
         "recipient_email": "user@example.com",
         "subject": "Urgent: Verify Your Account Immediately",
         "body": (
-            "Your account will be suspended within 24 hours. Click here immediately and "
-            "enter your username and password to verify your account and avoid permanent closure."
+            "Your account will be suspended within 24 hours. Click here "
+            "immediately and enter your username and password to verify "
+            "your account and avoid permanent closure."
         ),
     },
-    "SPAM · Kerja dari Rumah": {
+
+    "Penawaran kerja dari rumah": {
         "sender_name": "Online Income Team",
         "sender_email": "income@offers-example.com",
         "recipient_email": "user@example.com",
         "subject": "Make $5,000 Every Week From Home",
         "body": (
-            "Earn thousands of dollars weekly with no experience. Send your bank details "
-            "today to activate your guaranteed income opportunity. Limited spots available!"
+            "Earn thousands of dollars weekly with no experience. Send "
+            "your bank details today to activate your guaranteed income "
+            "opportunity. Limited spots available!"
         ),
     },
-    "SPAM · Diskon Eksklusif": {
+
+    "Diskon eksklusif": {
         "sender_name": "Mega Deals",
         "sender_email": "deals@shopping-example.com",
         "recipient_email": "user@example.com",
         "subject": "Exclusive Discount Just for You",
         "body": (
-            "Buy now and get 90 percent off all products. Act fast, this amazing offer is "
-            "available for a very limited time only. Click the link to claim your discount."
+            "Buy now and get 90 percent off all products. Act fast, "
+            "this amazing offer is available for a very limited time only. "
+            "Click the link to claim your discount."
         ),
     },
 }
 
 
 # =========================================================
-# KONFIGURASI STREAMLIT
+# PAGE CONFIG
 # =========================================================
 
 st.set_page_config(
-    page_title="MailGuard — Deteksi Email Spam",
-    page_icon="📨",
+    page_title="Email Detection",
+    page_icon="✉️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 
 # =========================================================
-# STYLE
+# CSS
 # =========================================================
 
 st.markdown(
     """
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
 
-      :root {
-        --mg-ink: #17243b;
-        --mg-muted: #718096;
-        --mg-line: #e7ecf3;
-        --mg-blue: #2457d6;
-        --mg-blue-soft: #edf3ff;
-        --mg-bg: #f5f7fb;
-        --mg-green: #168453;
-        --mg-red: #c43845;
-      }
+    @import url(
+        'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap'
+    );
 
-      html, body, [class*="css"] {
+    :root {
+        --blue: #2563eb;
+        --blue-dark: #1747b8;
+        --blue-soft: #eef4ff;
+        --text: #1f2937;
+        --muted: #718096;
+        --line: #e5e9f0;
+        --bg: #f6f8fb;
+        --white: #ffffff;
+        --green: #168453;
+        --red: #c43845;
+    }
+
+    html, body, [class*="css"] {
         font-family: 'DM Sans', sans-serif;
-      }
+    }
 
-      .stApp {
-        background: var(--mg-bg);
-        color: var(--mg-ink);
-      }
+    .stApp {
+        background: var(--bg);
+        color: var(--text);
+    }
 
-      header[data-testid="stHeader"] {
-        background: rgba(245,247,251,.88);
-      }
+    header[data-testid="stHeader"] {
+        background: rgba(246,248,251,.92);
+    }
 
-      [data-testid="stSidebar"] {
-        background: #fff;
-        border-right: 1px solid var(--mg-line);
-      }
+    [data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid var(--line);
+    }
 
-      [data-testid="stSidebar"] > div {
-        padding-top: 1.25rem;
-      }
+    [data-testid="stSidebar"] > div {
+        padding-top: 1.15rem;
+    }
 
-      [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: .65rem;
-      }
-
-      .block-container {
+    .block-container {
         max-width: 1450px;
-        padding-top: 1.5rem;
+        padding-top: 1.35rem;
         padding-bottom: 3rem;
-      }
+    }
 
-      .brand-wrap {
-        display:flex;
-        align-items:center;
-        gap:.78rem;
-        padding:.35rem .2rem 1.25rem;
-      }
+    /* BRAND */
 
-      .brand-icon {
-        width:46px;
-        height:46px;
-        flex:0 0 46px;
-        border-radius:15px;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        color:#fff;
-        font-size:1.38rem;
-        background:linear-gradient(145deg,#3268e7,#1743ad);
-        box-shadow:0 8px 18px rgba(36,87,214,.2);
-      }
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: .75rem;
+        padding: .2rem .15rem 1.35rem;
+    }
 
-      .brand-title {
-        color:var(--mg-ink);
-        font-size:1.32rem;
-        font-weight:800;
-        letter-spacing:-.055em;
-        line-height:1.05;
-      }
+    .brand-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 13px;
+        background: #2563eb;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        box-shadow: 0 8px 18px rgba(37,99,235,.2);
+    }
 
-      .brand-sub {
-        color:#8390a4;
-        text-transform:uppercase;
-        letter-spacing:.13em;
-        font-size:.62rem;
-        font-weight:800;
-        margin-top:.3rem;
-      }
+    .brand-name {
+        font-size: 1.28rem;
+        font-weight: 800;
+        letter-spacing: -.05em;
+        color: #17243b;
+        line-height: 1;
+    }
 
-      .sidebar-label {
-        color:#9aa5b5;
-        font-size:.65rem;
-        font-weight:800;
-        letter-spacing:.13em;
-        text-transform:uppercase;
-        margin:.4rem 0 .1rem;
-      }
+    .brand-sub {
+        margin-top: .28rem;
+        color: #8995a8;
+        font-size: .62rem;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+    }
 
-      [data-testid="stSidebar"] div[role="radiogroup"] {
-        gap:.35rem;
-      }
+    .nav-label {
+        color: #9aa5b5;
+        font-size: .64rem;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        margin: .35rem 0 .15rem;
+    }
 
-      [data-testid="stSidebar"] div[role="radiogroup"] label {
-        padding:.58rem .7rem;
-        border-radius:11px;
-        border:1px solid transparent;
-        background:transparent;
-      }
+    [data-testid="stSidebar"] div[role="radiogroup"] {
+        gap: .28rem;
+    }
 
-      [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
-        background:var(--mg-blue-soft);
-        border-color:#dce7ff;
-      }
+    [data-testid="stSidebar"] div[role="radiogroup"] label {
+        border-radius: 10px;
+        padding: .55rem .65rem;
+        border: 1px solid transparent;
+    }
 
-      [data-testid="stSidebar"] div[role="radiogroup"] label p {
-        font-weight:650;
-        color:#42516a;
-      }
+    [data-testid="stSidebar"]
+    div[role="radiogroup"]
+    label:has(input:checked) {
+        background: var(--blue-soft);
+        border-color: #dbe7ff;
+    }
 
-      [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {
-        color:#214db6;
-      }
+    [data-testid="stSidebar"]
+    div[role="radiogroup"]
+    label p {
+        font-weight: 600;
+        color: #526176;
+    }
 
-      .topbar {
+    [data-testid="stSidebar"]
+    div[role="radiogroup"]
+    label:has(input:checked) p {
+        color: #2457d6;
+    }
+
+    /* TOPBAR */
+
+    .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 1.1rem;
+        margin-bottom: 1.45rem;
+    }
+
+    .topbar-title {
+        font-weight: 800;
+        font-size: 1rem;
+        color: #1d2b42;
+    }
+
+    .topbar-sub {
+        color: #8591a3;
+        font-size: .72rem;
+        margin-top: .2rem;
+    }
+
+    .active-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: .35rem;
+        border: 1px solid #d8eadf;
+        background: #f0faf4;
+        color: #17734a;
+        border-radius: 999px;
+        padding: .36rem .65rem;
+        font-size: .64rem;
+        font-weight: 800;
+    }
+
+    /* PAGE */
+
+    .eyebrow {
+        color: #4c70bd;
+        font-size: .64rem;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        margin-bottom: .45rem;
+    }
+
+    .page-title {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: #17243b;
+        letter-spacing: -.055em;
+        line-height: 1.1;
+    }
+
+    .page-subtitle {
+        color: #718096;
+        font-size: .84rem;
+        line-height: 1.55;
+        margin-top: .45rem;
+        max-width: 760px;
+    }
+
+    /* CARDS */
+
+    .card {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 4px 16px rgba(23,36,59,.025);
+    }
+
+    .card-title {
+        color: #24334b;
+        font-size: .95rem;
+        font-weight: 800;
+    }
+
+    .card-subtitle {
+        color: #7c899d;
+        font-size: .73rem;
+        line-height: 1.5;
+        margin-top: .25rem;
+    }
+
+    /* HERO */
+
+    .hero {
+        background: linear-gradient(
+            115deg,
+            #214cae 0%,
+            #2563eb 58%,
+            #3b7be8 100%
+        );
+        border-radius: 18px;
+        padding: 1.4rem 1.5rem;
+        color: white;
+        margin: .35rem 0 1.05rem;
+        box-shadow: 0 12px 28px rgba(37,99,235,.16);
+    }
+
+    .hero-small {
+        color: #d4e2ff;
+        font-size: .64rem;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+    }
+
+    .hero-title {
+        color: white;
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: -.04em;
+        margin: .35rem 0 .25rem;
+    }
+
+    .hero-text {
+        color: #e5edff;
+        font-size: .8rem;
+        line-height: 1.55;
+        max-width: 700px;
+    }
+
+    /* EMAIL LIST */
+
+    .mail-row {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        padding: .85rem .9rem;
+        margin-bottom: .55rem;
+    }
+
+    .mail-row:hover {
+        border-color: #cbd8ef;
+    }
+
+    .mail-sender {
+        color: #25334a;
+        font-size: .78rem;
+        font-weight: 800;
+    }
+
+    .mail-subject {
+        color: #35435b;
+        font-size: .76rem;
+        font-weight: 700;
+        margin-top: .18rem;
+    }
+
+    .mail-preview {
+        color: #8995a7;
+        font-size: .7rem;
+        line-height: 1.4;
+        margin-top: .15rem;
+    }
+
+    .mail-time {
+        color: #9aa5b5;
+        font-size: .64rem;
+        white-space: nowrap;
+    }
+
+    /* STATUS */
+
+    .status-ok {
+        border: 1px solid #cde8d8;
+        background: #f0faf4;
+        color: #176c48;
+        padding: .9rem 1rem;
+        border-radius: 13px;
+    }
+
+    .status-spam {
+        border: 1px solid #f1cbd0;
+        background: #fff3f4;
+        color: #a42f3a;
+        padding: .9rem 1rem;
+        border-radius: 13px;
+    }
+
+    .status-title {
+        font-size: 1.05rem;
+        font-weight: 800;
+        margin-top: .25rem;
+    }
+
+    .status-small {
+        font-size: .72rem;
+        margin-top: .35rem;
+    }
+
+    .pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: .23rem .58rem;
+        font-size: .62rem;
+        font-weight: 800;
+    }
+
+    .pill-ham {
+        background: #eaf8f0;
+        color: #176c48;
+    }
+
+    .pill-spam {
+        background: #fff0f1;
+        color: #a42f3a;
+    }
+
+    /* METRICS */
+
+    .metric-card {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: .9rem 1rem;
+    }
+
+    .metric-label {
+        color: #8995a8;
+        font-size: .63rem;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+    }
+
+    .metric-value {
+        color: #17243b;
+        font-size: 1.65rem;
+        font-weight: 800;
+        letter-spacing: -.055em;
+        margin-top: .18rem;
+    }
+
+    .metric-help {
+        color: #8793a5;
+        font-size: .66rem;
+        margin-top: .1rem;
+    }
+
+    /* RESULT */
+
+    .result-box {
+        border: 1px solid #e3e8f0;
+        background: #ffffff;
+        border-radius: 15px;
+        padding: 1rem;
+    }
+
+    .result-title {
+        color: #24334b;
+        font-size: .68rem;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .1em;
+    }
+
+    .result-main {
+        font-size: 1.12rem;
+        font-weight: 800;
+        margin: .3rem 0 .75rem;
+    }
+
+    .probability-box {
+        border: 1px solid #e8edf3;
+        background: #f9fafc;
+        border-radius: 10px;
+        padding: .55rem .7rem;
+    }
+
+    .prob-label {
+        color: #8a96a8;
+        font-size: .61rem;
+        font-weight: 800;
+        text-transform: uppercase;
+    }
+
+    .prob-value {
+        color: #26364e;
+        font-size: 1rem;
+        font-weight: 800;
+        margin-top: .12rem;
+    }
+
+    /* FORM */
+
+    div[data-testid="stForm"] {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1.05rem 1.1rem;
+        box-shadow: 0 4px 16px rgba(23,36,59,.025);
+    }
+
+    /* ADMIN */
+
+    .admin-header {
         display:flex;
         align-items:center;
         justify-content:space-between;
         gap:1rem;
-        padding:.1rem 0 1.25rem;
-        border-bottom:1px solid var(--mg-line);
-        margin-bottom:1.5rem;
-      }
+    }
 
-      .topbar-title {
-        color:var(--mg-ink);
-        font-size:1.05rem;
-        font-weight:800;
-        letter-spacing:-.025em;
-      }
+    /* REMOVE EXCESS */
 
-      .topbar-sub {
-        color:var(--mg-muted);
-        font-size:.75rem;
-        margin-top:.2rem;
-      }
+    footer {
+        visibility: hidden;
+    }
 
-      .topbar-badge {
-        display:inline-flex;
-        align-items:center;
-        gap:.4rem;
-        padding:.42rem .7rem;
-        border-radius:999px;
-        color:#176c48;
-        background:#eaf8f0;
-        border:1px solid #ccebd9;
-        font-size:.69rem;
-        font-weight:800;
-        letter-spacing:.04em;
-        white-space:nowrap;
-      }
-
-      .eyebrow {
-        color:#4770c6;
-        text-transform:uppercase;
-        letter-spacing:.13em;
-        font-size:.68rem;
-        font-weight:800;
-        margin-bottom:.5rem;
-      }
-
-      .page-title {
-        color:var(--mg-ink);
-        font-size:1.8rem;
-        line-height:1.13;
-        font-weight:800;
-        letter-spacing:-.055em;
-        margin:0;
-      }
-
-      .page-subtitle {
-        color:var(--mg-muted);
-        font-size:.92rem;
-        margin-top:.45rem;
-        line-height:1.55;
-      }
-
-      .hero {
-        background:linear-gradient(120deg,#163c9b 0%,#2457d6 58%,#3176e8 100%);
-        border-radius:20px;
-        padding:1.45rem 1.55rem;
-        color:white;
-        box-shadow:0 14px 30px rgba(31,75,174,.16);
-        margin:.35rem 0 1.1rem;
-      }
-
-      .hero-kicker {
-        color:#c9dbff;
-        font-size:.68rem;
-        font-weight:800;
-        letter-spacing:.13em;
-        text-transform:uppercase;
-      }
-
-      .hero-head {
-        color:#fff;
-        font-size:1.42rem;
-        font-weight:800;
-        letter-spacing:-.04em;
-        margin:.38rem 0 .3rem;
-      }
-
-      .hero-copy {
-        color:#e1ebff;
-        font-size:.83rem;
-        line-height:1.55;
-        max-width:650px;
-      }
-
-      .surface {
-        background:#fff;
-        border:1px solid var(--mg-line);
-        border-radius:17px;
-        padding:1.05rem 1.15rem;
-        box-shadow:0 5px 18px rgba(23,36,59,.035);
-      }
-
-      .surface-title {
-        color:var(--mg-ink);
-        font-size:.98rem;
-        font-weight:800;
-        margin-bottom:.2rem;
-      }
-
-      .surface-copy {
-        color:var(--mg-muted);
-        font-size:.78rem;
-        line-height:1.5;
-      }
-
-      .notice {
-        border:1px solid #f1dfb2;
-        background:#fffbef;
-        color:#825616;
-        padding:.8rem .95rem;
-        border-radius:12px;
-        font-size:.78rem;
-        line-height:1.5;
-      }
-
-      .privacy-note {
-        border:1px solid #dce7f8;
-        background:#f5f8ff;
-        color:#455d84;
-        padding:.8rem .95rem;
-        border-radius:12px;
-        font-size:.78rem;
-        line-height:1.5;
-      }
-
-      .status-ok {
-        border:1px solid #ccebd9;
-        background:#effaf3;
-        color:#176c48;
-        padding:.9rem 1rem;
-        border-radius:13px;
-      }
-
-      .status-spam {
-        border:1px solid #f4cbd0;
-        background:#fff2f3;
-        color:#a52f3a;
-        padding:.9rem 1rem;
-        border-radius:13px;
-      }
-
-      .pill {
-        display:inline-flex;
-        align-items:center;
-        border-radius:999px;
-        padding:.25rem .62rem;
-        font-size:.68rem;
-        font-weight:800;
-        letter-spacing:.035em;
-      }
-
-      .pill-ham {
-        color:#176c48;
-        background:#e9f8ef;
-      }
-
-      .pill-spam {
-        color:#a52f3a;
-        background:#fff0f1;
-      }
-
-      .metric-card {
-        background:#fff;
-        border:1px solid var(--mg-line);
-        border-radius:15px;
-        padding:1rem 1.05rem;
-        box-shadow:0 4px 16px rgba(23,36,59,.025);
-      }
-
-      .metric-label {
-        color:#8390a4;
-        font-size:.69rem;
-        font-weight:800;
-        letter-spacing:.09em;
-        text-transform:uppercase;
-      }
-
-      .metric-value {
-        color:var(--mg-ink);
-        font-size:1.7rem;
-        font-weight:800;
-        letter-spacing:-.055em;
-        margin-top:.25rem;
-      }
-
-      .metric-foot {
-        color:var(--mg-muted);
-        font-size:.7rem;
-        margin-top:.2rem;
-      }
-
-      .result-kicker {
-        font-size:.68rem;
-        font-weight:800;
-        letter-spacing:.1em;
-        text-transform:uppercase;
-        color:#75849a;
-      }
-
-      .result-label {
-        font-size:1.1rem;
-        font-weight:800;
-        margin:.25rem 0 .65rem;
-      }
-
-      .result-score {
-        background:rgba(255,255,255,.72);
-        border:1px solid rgba(100,120,150,.12);
-        border-radius:11px;
-        padding:.65rem .75rem;
-      }
-
-      .result-score-label {
-        color:#7a879a;
-        font-size:.66rem;
-        font-weight:800;
-        text-transform:uppercase;
-        letter-spacing:.08em;
-      }
-
-      .result-score-value {
-        color:#26364e;
-        font-size:1.15rem;
-        font-weight:800;
-        margin-top:.15rem;
-      }
-
-      .dist-track {
-        height:12px;
-        border-radius:999px;
-        overflow:hidden;
-        background:#f1f3f7;
-        display:flex;
-        margin-top:.9rem;
-      }
-
-      .dist-ham {
-        background:#55b982;
-        height:100%;
-      }
-
-      .dist-spam {
-        background:#d85d68;
-        height:100%;
-      }
-
-      .dist-legend {
-        display:flex;
-        justify-content:space-between;
-        gap:1rem;
-        margin-top:.45rem;
-        color:#55705f;
-        font-size:.7rem;
-        font-weight:700;
-      }
-
-      div[data-testid="stForm"] {
-        background:#fff;
-        border:1px solid var(--mg-line);
-        border-radius:17px;
-        padding:1.05rem 1.1rem;
-        box-shadow:0 5px 18px rgba(23,36,59,.03);
-      }
-
-      [data-testid="stMetric"] {
-        background:#fff;
-        border:1px solid var(--mg-line);
-        border-radius:14px;
-        padding:.85rem .95rem;
-      }
-
-      [data-testid="stMetricLabel"] {
-        color:#7c8aa0;
-      }
-
-      [data-testid="stMetricValue"] {
-        color:var(--mg-ink);
-        font-weight:800;
-      }
-
-      [data-testid="stDataFrame"] {
-        border:1px solid var(--mg-line);
-        border-radius:12px;
-        overflow:hidden;
-      }
-
-      footer {
-        visibility:hidden;
-      }
-
-      @media (max-width: 760px) {
-        .block-container {
-          padding-top:1rem;
-        }
-
-        .page-title {
-          font-size:1.48rem;
-        }
-
-        .hero {
-          padding:1.15rem;
-        }
-      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -587,20 +615,38 @@ st.markdown(
 # MODEL
 # =========================================================
 
-@st.cache_resource(show_spinner="Memuat model Logistic Regression Kelompok 6...")
+@st.cache_resource(
+    show_spinner="Memuat sistem pemeriksaan email..."
+)
 def get_model_artifacts():
+
     return load_artifacts(APP_DIR)
 
 
 # =========================================================
-# KOMPONEN HALAMAN
+# HELPER
 # =========================================================
 
-def page_heading(kicker: str, title: str, subtitle: str) -> None:
+def page_heading(
+    section: str,
+    title: str,
+    subtitle: str,
+):
+
     st.markdown(
-        f'<div class="eyebrow">{html.escape(kicker)}</div>'
-        f'<div class="page-title">{html.escape(title)}</div>'
-        f'<div class="page-subtitle">{html.escape(subtitle)}</div>',
+        f"""
+        <div class="eyebrow">
+            {html.escape(section)}
+        </div>
+
+        <div class="page-title">
+            {html.escape(title)}
+        </div>
+
+        <div class="page-subtitle">
+            {html.escape(subtitle)}
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -609,300 +655,231 @@ def render_prediction(
     label: str,
     spam_probability: float,
     ham_probability: float,
-) -> None:
+):
 
-    spam_pct = max(0.0, min(100.0, spam_probability * 100))
-    ham_pct = max(0.0, min(100.0, ham_probability * 100))
+    spam_pct = spam_probability * 100
+    ham_pct = ham_probability * 100
 
-    is_spam = label == "SPAM"
+    if label == "SPAM":
 
-    tone = "#b83242" if is_spam else "#157347"
-    icon = "⚠️" if is_spam else "✓"
+        box_class = "status-spam"
+        title = "Email masuk ke Spam"
+        icon = "⚠️"
+        color = "#a42f3a"
 
-    label_text = (
-        "SPAM TERDETEKSI"
-        if is_spam
-        else "KEMUNGKINAN HAM"
-    )
+    else:
 
-    card_class = (
-        "status-spam"
-        if is_spam
-        else "status-ok"
-    )
+        box_class = "status-ok"
+        title = "Email masuk ke Kotak Masuk"
+        icon = "✓"
+        color = "#176c48"
 
     st.markdown(
-        f'<div class="{card_class}">'
-        f'<div class="result-kicker">Klasifikasi MailGuard</div>'
-        f'<div class="result-label" style="color:{tone}">'
-        f'{icon} {label_text}'
-        f'</div>'
+        f"""
+        <div class="{box_class}">
 
-        f'<div style="display:flex;gap:.7rem;flex-wrap:wrap">'
+            <div style="
+                font-size:.62rem;
+                font-weight:800;
+                letter-spacing:.1em;
+                text-transform:uppercase;
+                color:{color};
+            ">
+                HASIL PEMERIKSAAN
+            </div>
 
-        f'<div class="result-score" style="flex:1;min-width:135px">'
-        f'<div class="result-score-label">Perkiraan SPAM</div>'
-        f'<div class="result-score-value">{spam_pct:.2f}%</div>'
-        f'</div>'
+            <div class="status-title"
+                 style="color:{color}">
+                {icon} {title}
+            </div>
 
-        f'<div class="result-score" style="flex:1;min-width:135px">'
-        f'<div class="result-score-label">Perkiraan HAM</div>'
-        f'<div class="result-score-value">{ham_pct:.2f}%</div>'
-        f'</div>'
+            <div class="status-small">
+                Email telah diperiksa dan dikategorikan
+                secara otomatis.
+            </div>
 
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.caption(
-        "Skor berasal dari predict_proba Logistic Regression dan "
-        "belum tentu terkalibrasi sebagai probabilitas risiko yang sebenarnya."
-    )
-
-
-def render_message_detail(
-    message: dict,
-    allow_delete: bool = False,
-) -> None:
-
-    label = str(message.get("predicted_label", ""))
-
-    subject = html.escape(
-        str(message.get("subject") or "(Tanpa subjek)")
-    )
-
-    sender_name = html.escape(
-        str(message.get("sender_name") or "")
-    )
-
-    sender_email = html.escape(
-        str(message.get("sender_email") or "")
-    )
-
-    recipient_email = html.escape(
-        str(message.get("recipient_email") or "")
-    )
-
-    created_at = html.escape(
-        str(message.get("created_at") or "")
-    )
-
-    pill = (
-        '<span class="pill pill-spam">SPAM</span>'
-        if label == "SPAM"
-        else '<span class="pill pill-ham">HAM · KOTAK MASUK</span>'
-    )
-
-    st.markdown(
-        '<div class="surface">'
-        f'<div style="display:flex;justify-content:space-between;'
-        f'align-items:center;gap:.5rem">{pill}'
-        '<span style="color:#8a96a8;font-size:.7rem;font-weight:700">'
-        'DETAIL PESAN'
-        '</span></div>'
-
-        f'<div style="font-size:1.35rem;font-weight:800;'
-        f'letter-spacing:-.04em;color:#17243b;margin:.8rem 0">'
-        f'{subject}'
-        f'</div>'
-
-        f'<div style="color:#64748b;font-size:.82rem">'
-        f'<b>{sender_name}</b> · {sender_email}'
-        f'</div>'
-
-        f'<div style="color:#8290a4;font-size:.75rem;margin-top:.25rem">'
-        f'Kepada: {recipient_email}'
-        f'</div>'
-
-        f'<div style="color:#8290a4;font-size:.7rem;margin-top:.25rem">'
-        f'Diterima: {created_at}'
-        f'</div>'
-
-        '</div>',
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
     st.write("")
 
-    st.markdown(
-        '<div class="surface-title">Isi pesan</div>',
-        unsafe_allow_html=True,
-    )
+    col1, col2 = st.columns(2)
 
-    st.text(str(message.get("body", "")))
+    with col1:
 
-    render_prediction(
-        label,
-        float(message.get("spam_probability", 0.0)),
-        float(message.get("ham_probability", 0.0)),
-    )
+        st.markdown(
+            f"""
+            <div class="probability-box">
+                <div class="prob-label">
+                    Perkiraan SPAM
+                </div>
 
-    if allow_delete:
-
-        confirm_key = f"confirm_delete_{message.get('id')}"
-
-        st.checkbox(
-            "Saya yakin ingin menghapus email ini secara permanen",
-            key=confirm_key,
+                <div class="prob-value">
+                    {spam_pct:.2f}%
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        if st.button(
-            "Hapus email secara permanen",
-            type="secondary",
-            key=f"delete_{message.get('id')}",
-        ):
+    with col2:
 
-            if st.session_state.get(confirm_key):
+        st.markdown(
+            f"""
+            <div class="probability-box">
+                <div class="prob-label">
+                    Perkiraan HAM
+                </div>
 
-                delete_message(message["id"])
-
-                st.session_state.pop(
-                    "admin_selected_message",
-                    None,
-                )
-
-                st.success(
-                    "Email telah dihapus dari database."
-                )
-
-                st.rerun()
-
-            else:
-
-                st.warning(
-                    "Centang konfirmasi sebelum menghapus email."
-                )
+                <div class="prob-value">
+                    {ham_pct:.2f}%
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # =========================================================
-# HALAMAN KIRIM EMAIL
+# TULIS EMAIL
 # =========================================================
 
-def render_public_send(model, vectorizer) -> None:
+def render_send_page(
+    model,
+    vectorizer,
+):
 
     page_heading(
-        "PEMERIKSAAN EMAIL PUBLIK",
-        "Tulis dan periksa email",
-        "Tulis email seperti biasa. MailGuard akan memeriksa subjek "
-        "dan isi pesan menggunakan model Logistic Regression Kelompok 6.",
+        "EMAIL BARU",
+        "Tulis Email",
+        "Kirim pesan ke sistem dan periksa apakah pesan tersebut "
+        "termasuk email normal atau spam.",
     )
 
     st.markdown(
-        '<div class="hero">'
-        '<div class="hero-kicker">PEMERIKSAAN EMAIL BERBASIS AI</div>'
+        """
+        <div class="hero">
 
-        '<div class="hero-head">'
-        'Kotak masuk yang lebih aman dimulai dari satu pemeriksaan.'
-        '</div>'
+            <div class="hero-small">
+                EMAIL DETECTION
+            </div>
 
-        '<div class="hero-copy">'
-        'Kirim pesan ke kotak surat demonstrasi, dapatkan klasifikasi HAM '
-        'atau SPAM, dan simpan kode pelacakan pribadi untuk memeriksa '
-        'hasilnya kembali.'
-        '</div>'
+            <div class="hero-title">
+                Tulis pesan seperti biasa.
+            </div>
 
-        '</div>',
+            <div class="hero-text">
+                Setelah dikirim, pesan akan diperiksa secara otomatis
+                sebelum masuk ke kotak surat.
+            </div>
+
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    left_col, right_col = st.columns(
-        [1.55, 0.85],
+    left, right = st.columns(
+        [1.5, .8],
         gap="large",
     )
 
-    with left_col:
-
-        st.markdown(
-            '<div class="surface-title">Pesan baru</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            '<div class="surface-copy">'
-            'Lengkapi detail pengirim, penerima, subjek, dan isi email.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    with left:
 
         sample_options = [
-            "— Pilih contoh email (opsional) —",
+            "— Pilih contoh email —",
             *SAMPLES.keys(),
         ]
 
-        chosen_sample = st.selectbox(
+        selected_sample = st.selectbox(
             "Contoh email",
             sample_options,
-            key="sample_choice",
         )
 
         if st.button(
-            "Muat contoh email",
-            disabled=chosen_sample == sample_options[0],
-            use_container_width=False,
+            "Muat contoh",
+            disabled=selected_sample == sample_options[0],
         ):
 
-            sample = SAMPLES[chosen_sample]
+            sample = SAMPLES[
+                selected_sample
+            ]
 
-            st.session_state["sender_name"] = sample["sender_name"]
-            st.session_state["sender_email"] = sample["sender_email"]
-            st.session_state["recipient_email"] = sample["recipient_email"]
-            st.session_state["subject"] = sample["subject"]
-            st.session_state["body"] = sample["body"]
+            st.session_state[
+                "sender_name"
+            ] = sample["sender_name"]
+
+            st.session_state[
+                "sender_email"
+            ] = sample["sender_email"]
+
+            st.session_state[
+                "recipient_email"
+            ] = sample["recipient_email"]
+
+            st.session_state[
+                "subject"
+            ] = sample["subject"]
+
+            st.session_state[
+                "body"
+            ] = sample["body"]
 
             st.rerun()
 
         with st.form(
-            "public_email_form",
-            clear_on_submit=False,
+            "send_email_form"
         ):
 
             sender_name = st.text_input(
                 "Nama pengirim",
                 key="sender_name",
-                max_chars=100,
                 placeholder="Contoh: Alex Morgan",
+                max_chars=100,
             )
 
             sender_email = st.text_input(
                 "Alamat email pengirim",
                 key="sender_email",
-                max_chars=254,
                 placeholder="nama@example.com",
+                max_chars=254,
             )
 
             recipient_email = st.text_input(
-                "Alamat email tujuan (simulasi)",
+                "Kepada",
                 key="recipient_email",
+                placeholder="penerima@example.com",
                 max_chars=254,
-                placeholder="penerima@example.edu",
             )
 
             subject = st.text_input(
                 "Subjek",
                 key="subject",
-                max_chars=MAX_SUBJECT_CHARS,
                 placeholder="Masukkan subjek email",
+                max_chars=MAX_SUBJECT_CHARS,
             )
 
             body = st.text_area(
                 "Isi email",
                 key="body",
-                height=220,
+                height=230,
                 max_chars=MAX_BODY_CHARS,
-                placeholder="Tulis isi email yang ingin diperiksa MailGuard...",
+                placeholder="Tulis pesan Anda...",
             )
 
             submitted = st.form_submit_button(
-                "✉  Kirim & Deteksi Email",
+                "✉️  Kirim Email",
                 type="primary",
                 use_container_width=True,
             )
 
         if submitted:
 
-            errors: list[str] = []
+            errors = []
 
             if not sender_name.strip():
+
                 errors.append(
                     "Nama pengirim wajib diisi."
                 )
@@ -910,6 +887,7 @@ def render_public_send(model, vectorizer) -> None:
             if not EMAIL_RE.fullmatch(
                 sender_email.strip()
             ):
+
                 errors.append(
                     "Alamat email pengirim belum valid."
                 )
@@ -917,23 +895,20 @@ def render_public_send(model, vectorizer) -> None:
             if not EMAIL_RE.fullmatch(
                 recipient_email.strip()
             ):
+
                 errors.append(
                     "Alamat email tujuan belum valid."
                 )
 
             if not subject.strip() and not body.strip():
+
                 errors.append(
                     "Subjek atau isi email harus diisi."
                 )
 
-            if len(body) > MAX_BODY_CHARS:
-                errors.append(
-                    f"Isi email maksimal {MAX_BODY_CHARS:,} karakter."
-                )
-
             now = time.time()
 
-            recent_submissions = [
+            submissions = [
                 t
                 for t in st.session_state.get(
                     "submission_times",
@@ -942,16 +917,17 @@ def render_public_send(model, vectorizer) -> None:
                 if now - t < 3600
             ]
 
-            if len(recent_submissions) >= 20:
+            if len(submissions) >= 20:
+
                 errors.append(
-                    "Batas demonstrasi tercapai: maksimal "
-                    "20 pengiriman per sesi setiap jam."
+                    "Batas pengiriman pada sesi ini telah tercapai."
                 )
 
             if (
-                recent_submissions
-                and now - recent_submissions[-1] < 3
+                submissions
+                and now - submissions[-1] < 3
             ):
+
                 errors.append(
                     "Tunggu beberapa detik sebelum mengirim email berikutnya."
                 )
@@ -972,12 +948,17 @@ def render_public_send(model, vectorizer) -> None:
                         vectorizer,
                     )
 
-                    tracking_code = generate_tracking_code()
+                    tracking_code = (
+                        generate_tracking_code()
+                    )
 
-                    created_at = datetime.now(
-                        timezone.utc
-                    ).isoformat(
-                        timespec="seconds"
+                    created_at = (
+                        datetime.now(
+                            timezone.utc
+                        )
+                        .isoformat(
+                            timespec="seconds"
+                        )
                     )
 
                     save_message(
@@ -987,8 +968,10 @@ def render_public_send(model, vectorizer) -> None:
                         sender_name=sender_name.strip(),
                         sender_email=sender_email.strip().lower(),
                         recipient_email=recipient_email.strip().lower(),
-                        subject=subject.strip()
-                        or "(Tanpa subjek)",
+                        subject=(
+                            subject.strip()
+                            or "(Tanpa subjek)"
+                        ),
                         body=body.strip(),
                         predicted_label=result.label,
                         spam_probability=result.spam_probability,
@@ -996,21 +979,27 @@ def render_public_send(model, vectorizer) -> None:
                         created_at=created_at,
                     )
 
-                    recent_submissions.append(now)
+                    submissions.append(now)
 
                     st.session_state[
                         "submission_times"
-                    ] = recent_submissions
+                    ] = submissions
 
                     st.session_state[
-                        "last_submission_result"
+                        "last_result"
                     ] = {
                         "label": result.label,
-                        "spam_probability": result.spam_probability,
-                        "ham_probability": result.ham_probability,
+                        "spam_probability": (
+                            result.spam_probability
+                        ),
+                        "ham_probability": (
+                            result.ham_probability
+                        ),
                         "tracking_code": tracking_code,
-                        "subject": subject.strip()
-                        or "(Tanpa subjek)",
+                        "subject": (
+                            subject.strip()
+                            or "(Tanpa subjek)"
+                        ),
                     }
 
                     st.rerun()
@@ -1018,110 +1007,166 @@ def render_public_send(model, vectorizer) -> None:
                 except Exception as exc:
 
                     st.error(
-                        "Email gagal diproses atau disimpan. "
-                        "Periksa konfigurasi database aplikasi."
+                        "Email gagal diproses atau disimpan."
                     )
 
-                    st.caption(str(exc))
+                    st.caption(
+                        str(exc)
+                    )
 
-    with right_col:
-
-        st.markdown(
-            '<div class="surface">'
-            '<div class="surface-title">Cara kerja MailGuard</div>'
-
-            '<div class="surface-copy">'
-            'Setiap email melewati alur klasifikasi yang sama '
-            'dengan eksperimen Kelompok 6.'
-            '</div>'
-
-            '<div style="margin-top:1rem;display:flex;gap:.7rem;align-items:flex-start">'
-            '<div style="background:#edf3ff;color:#2457d6;border-radius:10px;padding:.55rem">①</div>'
-            '<div>'
-            '<b style="font-size:.83rem;color:#25334a">Pemrosesan teks</b>'
-            '<div style="color:#718096;font-size:.73rem">'
-            'Subjek dan isi digabung, lalu dinormalisasi.'
-            '</div>'
-            '</div>'
-            '</div>'
-
-            '<div style="margin-top:.9rem;display:flex;gap:.7rem;align-items:flex-start">'
-            '<div style="background:#edf3ff;color:#2457d6;border-radius:10px;padding:.55rem">②</div>'
-            '<div>'
-            '<b style="font-size:.83rem;color:#25334a">'
-            'Vektorisasi TF-IDF'
-            '</b>'
-            '<div style="color:#718096;font-size:.73rem">'
-            'Teks diubah menjadi representasi numerik.'
-            '</div>'
-            '</div>'
-            '</div>'
-
-            '<div style="margin-top:.9rem;display:flex;gap:.7rem;align-items:flex-start">'
-            '<div style="background:#edf3ff;color:#2457d6;border-radius:10px;padding:.55rem">③</div>'
-            '<div>'
-            '<b style="font-size:.83rem;color:#25334a">'
-            'Logistic Regression'
-            '</b>'
-            '<div style="color:#718096;font-size:.73rem">'
-            'Model menentukan label HAM atau SPAM.'
-            '</div>'
-            '</div>'
-            '</div>'
-
-            '<div style="margin-top:.9rem;display:flex;gap:.7rem;align-items:flex-start">'
-            '<div style="background:#edf3ff;color:#2457d6;border-radius:10px;padding:.55rem">④</div>'
-            '<div>'
-            '<b style="font-size:.83rem;color:#25334a">'
-            'Pelacakan aman'
-            '</b>'
-            '<div style="color:#718096;font-size:.73rem">'
-            'Hasil disimpan dan kode pelacakan dibuat.'
-            '</div>'
-            '</div>'
-            '</div>'
-
-            '<hr style="border:0;border-top:1px solid #e8edf4;margin:1.1rem 0">'
-
-            '<div style="display:flex;justify-content:space-between;align-items:center">'
-            '<span style="font-size:.73rem;color:#718096">MODEL</span>'
-            '<b style="font-size:.77rem;color:#273750">'
-            'Logistic Regression'
-            '</b>'
-            '</div>'
-
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:.45rem">'
-            '<span style="font-size:.73rem;color:#718096">KONFIGURASI</span>'
-            '<b style="font-size:.77rem;color:#273750">'
-            'C = 10 · TF-IDF'
-            '</b>'
-            '</div>'
-
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:.45rem">'
-            '<span style="font-size:.73rem;color:#718096">BAHASA</span>'
-            '<b style="font-size:.77rem;color:#273750">'
-            'Bahasa Inggris'
-            '</b>'
-            '</div>'
-
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.write("")
+    with right:
 
         st.markdown(
-            '<div class="notice">'
-            '<b>Lingkungan demo.</b> Email disimpan untuk pemeriksaan '
-            'di MailGuard, tidak diteruskan ke Gmail/Outlook. '
-            'Jangan masukkan password, OTP, data keuangan, atau '
-            'informasi sensitif.'
-            '</div>',
+            """
+            <div class="card">
+
+                <div class="card-title">
+                    Sebelum mengirim
+                </div>
+
+                <div class="card-subtitle">
+                    Email yang dikirim melalui aplikasi ini
+                    merupakan bagian dari sistem demonstrasi.
+                </div>
+
+                <div style="margin-top:1rem">
+
+                    <div style="
+                        display:flex;
+                        gap:.65rem;
+                        margin-bottom:.8rem;
+                    ">
+
+                        <div style="
+                            width:28px;
+                            height:28px;
+                            border-radius:9px;
+                            background:#eef4ff;
+                            color:#2563eb;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            font-size:.72rem;
+                            font-weight:800;
+                        ">
+                            1
+                        </div>
+
+                        <div>
+                            <b style="font-size:.77rem">
+                                Tulis pesan
+                            </b>
+
+                            <div style="
+                                color:#7c899d;
+                                font-size:.68rem;
+                            ">
+                                Isi pengirim, penerima,
+                                subjek, dan pesan.
+                            </div>
+                        </div>
+
+                    </div>
+
+
+                    <div style="
+                        display:flex;
+                        gap:.65rem;
+                        margin-bottom:.8rem;
+                    ">
+
+                        <div style="
+                            width:28px;
+                            height:28px;
+                            border-radius:9px;
+                            background:#eef4ff;
+                            color:#2563eb;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            font-size:.72rem;
+                            font-weight:800;
+                        ">
+                            2
+                        </div>
+
+                        <div>
+                            <b style="font-size:.77rem">
+                                Kirim
+                            </b>
+
+                            <div style="
+                                color:#7c899d;
+                                font-size:.68rem;
+                            ">
+                                Sistem memeriksa pesan
+                                secara otomatis.
+                            </div>
+                        </div>
+
+                    </div>
+
+
+                    <div style="
+                        display:flex;
+                        gap:.65rem;
+                    ">
+
+                        <div style="
+                            width:28px;
+                            height:28px;
+                            border-radius:9px;
+                            background:#eef4ff;
+                            color:#2563eb;
+                            display:flex;
+                            align-items:center;
+                            justify-content:center;
+                            font-size:.72rem;
+                            font-weight:800;
+                        ">
+                            3
+                        </div>
+
+                        <div>
+                            <b style="font-size:.77rem">
+                                Simpan kode
+                            </b>
+
+                            <div style="
+                                color:#7c899d;
+                                font-size:.68rem;
+                            ">
+                                Gunakan kode pelacakan
+                                untuk melihat hasilnya.
+                            </div>
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <hr style="
+                    border:0;
+                    border-top:1px solid #e8edf4;
+                    margin:1.1rem 0;
+                ">
+
+                <div style="
+                    color:#7c899d;
+                    font-size:.66rem;
+                    line-height:1.5;
+                ">
+                    Jangan masukkan password, OTP, nomor kartu,
+                    atau informasi pribadi yang sensitif.
+                </div>
+
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 
     last = st.session_state.get(
-        "last_submission_result"
+        "last_result"
     )
 
     if last:
@@ -1129,26 +1174,12 @@ def render_public_send(model, vectorizer) -> None:
         st.write("")
 
         st.markdown(
-            '<div class="surface-title">'
-            'Hasil pemeriksaan terbaru'
-            '</div>',
+            """
+            <div class="card-title">
+                Hasil pemeriksaan
+            </div>
+            """,
             unsafe_allow_html=True,
-        )
-
-        if last["label"] == "SPAM":
-
-            st.error(
-                "Email terdeteksi SPAM dan masuk ke folder Spam admin."
-            )
-
-        else:
-
-            st.success(
-                "Email terdeteksi HAM dan masuk ke Kotak Masuk admin."
-            )
-
-        st.write(
-            f"**Subjek:** {last['subject']}"
         )
 
         render_prediction(
@@ -1157,8 +1188,25 @@ def render_public_send(model, vectorizer) -> None:
             last["ham_probability"],
         )
 
+        st.write("")
+
         st.markdown(
-            "**Kode pelacakan pribadi Anda**"
+            """
+            <div class="card">
+
+                <div style="
+                    color:#7c899d;
+                    font-size:.63rem;
+                    font-weight:800;
+                    letter-spacing:.08em;
+                    text-transform:uppercase;
+                ">
+                    KODE PELACAKAN
+                </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
         st.code(
@@ -1167,52 +1215,50 @@ def render_public_send(model, vectorizer) -> None:
         )
 
         st.caption(
-            "Simpan kode ini. Kode hanya ditampilkan setelah "
-            "pengiriman dan diperlukan untuk melihat hasil melalui "
-            "halaman Lacak Pesan. MailGuard menyimpan hash kode, "
-            "bukan kode aslinya."
+            "Simpan kode ini. Kode digunakan untuk melihat "
+            "hasil email melalui menu Lacak Pesan."
         )
 
 
 # =========================================================
-# HALAMAN LACAK PESAN
+# LACAK PESAN
 # =========================================================
 
-def render_public_status() -> None:
+def render_tracking_page():
 
     page_heading(
-        "PELACAKAN PRIBADI",
-        "Lacak pemeriksaan email Anda",
-        "Masukkan kode pelacakan pribadi yang diberikan setelah "
-        "pengiriman untuk melihat hasil deteksi email.",
+        "PELACAKAN",
+        "Lacak Pesan",
+        "Gunakan kode pelacakan yang Anda terima setelah "
+        "mengirim email untuk melihat hasil pemeriksaannya.",
     )
 
-    left_col, right_col = st.columns(
-        [1.2, 0.8],
+    left, right = st.columns(
+        [1.15, .85],
         gap="large",
     )
 
-    with left_col:
+    with left:
 
         with st.form(
-            "tracking_lookup_form"
+            "tracking_form"
         ):
 
-            code = st.text_input(
-                "Kode pelacakan pribadi",
-                placeholder="Tempel kode pelacakan Anda di sini",
+            tracking_code = st.text_input(
+                "Kode pelacakan",
+                placeholder="Masukkan kode pelacakan Anda",
                 max_chars=100,
             )
 
-            lookup = st.form_submit_button(
-                "Periksa Status",
+            check = st.form_submit_button(
+                "🔎  Periksa Pesan",
                 type="primary",
                 use_container_width=True,
             )
 
-        if lookup:
+        if check:
 
-            if not code.strip():
+            if not tracking_code.strip():
 
                 st.error(
                     "Masukkan kode pelacakan terlebih dahulu."
@@ -1222,86 +1268,409 @@ def render_public_status() -> None:
 
                 try:
 
-                    message = get_message_by_tracking_hash(
-                        hash_tracking_code(code)
+                    message = (
+                        get_message_by_tracking_hash(
+                            hash_tracking_code(
+                                tracking_code
+                            )
+                        )
                     )
 
                     if not message:
 
                         st.error(
-                            "Kode tidak ditemukan. Periksa kembali "
-                            "kode yang diberikan setelah pengiriman."
+                            "Kode pelacakan tidak ditemukan."
                         )
 
                     else:
 
                         st.success(
-                            "Email ditemukan. Berikut hasil deteksi "
-                            "untuk kode tersebut."
+                            "Pesan ditemukan."
                         )
 
-                        st.markdown(
-                            f"**Subjek:** {message['subject']}"
+                        st.write(
+                            f"**Subjek:** "
+                            f"{message['subject']}"
                         )
 
                         st.caption(
-                            f"Tanggal: {message['created_at']}"
+                            f"Diterima: "
+                            f"{message['created_at']}"
                         )
 
                         render_prediction(
-                            message["predicted_label"],
+                            message[
+                                "predicted_label"
+                            ],
                             float(
-                                message["spam_probability"]
+                                message[
+                                    "spam_probability"
+                                ]
                             ),
                             float(
-                                message["ham_probability"]
+                                message[
+                                    "ham_probability"
+                                ]
                             ),
                         )
 
                 except Exception as exc:
 
                     st.error(
-                        "Status belum dapat diperiksa karena ada "
-                        "masalah koneksi database."
+                        "Status pesan belum dapat diperiksa."
                     )
 
-                    st.caption(str(exc))
+                    st.caption(
+                        str(exc)
+                    )
 
-    with right_col:
+    with right:
 
         st.markdown(
-            '<div class="surface">'
-            '<div class="surface-title">Privasi Anda penting</div>'
+            """
+            <div class="card">
 
-            '<div class="surface-copy">'
-            'Kode pelacakan berfungsi sebagai kunci untuk membuka '
-            'hasil satu pengiriman. Pengunjung tidak dapat '
-            'menelusuri Kotak Masuk atau Spam milik pengguna lain.'
-            '</div>'
+                <div class="card-title">
+                    Tentang kode pelacakan
+                </div>
 
-            '<div style="margin-top:1rem;color:#2457d6;font-size:1.45rem">'
-            '⌁'
-            '</div>'
+                <div class="card-subtitle">
+                    Kode ini diberikan setelah Anda mengirim
+                    sebuah email melalui aplikasi.
+                </div>
 
-            '<b style="font-size:.82rem;color:#26364e">'
-            'Pencarian pribadi'
-            '</b>'
+                <div style="
+                    margin-top:1rem;
+                    color:#2563eb;
+                    font-size:1.4rem;
+                ">
+                    🔐
+                </div>
 
-            '<div style="font-size:.73rem;color:#718096">'
-            'Hanya hasil yang cocok dengan hash kode pelacakan '
-            'yang ditampilkan.'
-            '</div>'
+                <div style="
+                    color:#26364e;
+                    font-size:.78rem;
+                    font-weight:700;
+                ">
+                    Bersifat pribadi
+                </div>
 
-            '</div>',
+                <div style="
+                    color:#7c899d;
+                    font-size:.68rem;
+                    line-height:1.5;
+                ">
+                    Gunakan kode yang sesuai dengan pesan
+                    yang ingin Anda periksa.
+                </div>
+
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+
+
+# =========================================================
+# LOGIN ADMIN
+# =========================================================
+
+def render_admin_login():
+
+    password_hash = (
+        get_admin_password_hash()
+    )
+
+    if (
+        not password_hash
+        or password_hash
+        == "PASTE_PBKDF2_HASH_FROM_GENERATOR_HERE"
+    ):
+
+        st.warning(
+            "Login admin belum dikonfigurasi. "
+            "Isi ADMIN_PASSWORD_HASH pada Secrets aplikasi."
+        )
+
+        return
+
+    lock_until = float(
+        st.session_state.get(
+            "admin_lock_until",
+            0,
+        )
+    )
+
+    if time.time() < lock_until:
+
+        st.error(
+            "Terlalu banyak percobaan login. "
+            "Coba lagi setelah 60 detik."
+        )
+
+        return
+
+    st.markdown(
+        """
+        <div class="card">
+
+            <div class="card-title">
+                Masuk ke Panel Admin
+            </div>
+
+            <div class="card-subtitle">
+                Panel ini digunakan untuk melihat
+                email yang telah masuk dan hasil penyaringannya.
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form(
+        "admin_login"
+    ):
+
+        password = st.text_input(
+            "Password admin",
+            type="password",
+        )
+
+        login = st.form_submit_button(
+            "Masuk",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if login:
+
+        if verify_admin_password(
+            password,
+            password_hash,
+        ):
+
+            st.session_state[
+                "admin_authenticated"
+            ] = True
+
+            st.session_state[
+                "admin_failed_attempts"
+            ] = 0
+
+            st.rerun()
+
+        else:
+
+            attempts = (
+                st.session_state.get(
+                    "admin_failed_attempts",
+                    0,
+                )
+                + 1
+            )
+
+            st.session_state[
+                "admin_failed_attempts"
+            ] = attempts
+
+            st.error(
+                "Password admin salah."
+            )
+
+            if attempts >= 5:
+
+                st.session_state[
+                    "admin_lock_until"
+                ] = time.time() + 60
+
+                st.session_state[
+                    "admin_failed_attempts"
+                ] = 0
+
+
+# =========================================================
+# DETAIL EMAIL
+# =========================================================
+
+def render_email_detail(
+    message: dict,
+):
+
+    label = message[
+        "predicted_label"
+    ]
+
+    if label == "SPAM":
+
+        pill = (
+            '<span class="pill pill-spam">'
+            'SPAM'
+            '</span>'
+        )
+
+    else:
+
+        pill = (
+            '<span class="pill pill-ham">'
+            'KOTAK MASUK'
+            '</span>'
+        )
+
+    sender_name = html.escape(
+        str(
+            message.get(
+                "sender_name",
+                "",
+            )
+        )
+    )
+
+    sender_email = html.escape(
+        str(
+            message.get(
+                "sender_email",
+                "",
+            )
+        )
+    )
+
+    recipient_email = html.escape(
+        str(
+            message.get(
+                "recipient_email",
+                "",
+            )
+        )
+    )
+
+    subject = html.escape(
+        str(
+            message.get(
+                "subject",
+                "(Tanpa subjek)",
+            )
+        )
+    )
+
+    created_at = html.escape(
+        str(
+            message.get(
+                "created_at",
+                "",
+            )
+        )
+    )
+
+    st.markdown(
+        f"""
+        <div class="card">
+
+            <div style="
+                display:flex;
+                justify-content:space-between;
+                align-items:center;
+            ">
+
+                {pill}
+
+                <span style="
+                    color:#9aa5b5;
+                    font-size:.61rem;
+                    font-weight:800;
+                    letter-spacing:.08em;
+                ">
+                    PESAN
+                </span>
+
+            </div>
+
+            <div style="
+                color:#17243b;
+                font-size:1.3rem;
+                font-weight:800;
+                letter-spacing:-.04em;
+                margin:.75rem 0;
+            ">
+                {subject}
+            </div>
+
+            <div style="
+                color:#53627a;
+                font-size:.75rem;
+            ">
+                <b>{sender_name}</b>
+                · {sender_email}
+            </div>
+
+            <div style="
+                color:#8a96a8;
+                font-size:.68rem;
+                margin-top:.2rem;
+            ">
+                Kepada: {recipient_email}
+            </div>
+
+            <div style="
+                color:#9aa5b5;
+                font-size:.65rem;
+                margin-top:.2rem;
+            ">
+                {created_at}
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.write("")
+
+    st.markdown(
+        """
+        <div class="card">
+
+            <div class="card-title">
+                Isi pesan
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.text(
+        str(
+            message.get(
+                "body",
+                "",
+            )
+        )
+    )
+
+    st.write("")
+
+    render_prediction(
+        label,
+        float(
+            message[
+                "spam_probability"
+            ]
+        ),
+        float(
+            message[
+                "ham_probability"
+            ]
+        ),
+    )
 
 
 # =========================================================
 # CSV
 # =========================================================
 
-def _build_csv(messages: list[dict]) -> str:
+def build_csv(
+    messages: list[dict],
+) -> str:
 
     output = io.StringIO()
 
@@ -1325,152 +1694,24 @@ def _build_csv(messages: list[dict]) -> str:
     )
 
     writer.writeheader()
-    writer.writerows(messages)
+
+    writer.writerows(
+        messages
+    )
 
     return output.getvalue()
 
 
 # =========================================================
-# LOGIN ADMIN
+# PANEL ADMIN
 # =========================================================
 
-def _render_admin_login() -> None:
-
-    st.markdown(
-        '<div class="hero">'
-        '<div class="hero-kicker">AREA TERBATAS</div>'
-
-        '<div class="hero-head">'
-        'Selamat datang kembali, administrator.'
-        '</div>'
-
-        '<div class="hero-copy">'
-        'Masuk untuk mengelola kotak surat demonstrasi, '
-        'memeriksa klasifikasi, dan memantau aktivitas MailGuard.'
-        '</div>'
-
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    password_hash = get_admin_password_hash()
-
-    if (
-        not password_hash
-        or password_hash
-        == "PASTE_PBKDF2_HASH_FROM_GENERATOR_HERE"
-    ):
-
-        st.warning(
-            "Login admin belum dikonfigurasi. Buat hash password "
-            "dengan `python generate_admin_hash.py`, lalu isi "
-            "ADMIN_PASSWORD_HASH pada Secrets aplikasi."
-        )
-
-        return
-
-    lock_until = float(
-        st.session_state.get(
-            "admin_lock_until",
-            0,
-        )
-    )
-
-    if time.time() < lock_until:
-
-        st.error(
-            "Terlalu banyak percobaan login. "
-            "Coba lagi setelah 60 detik."
-        )
-
-        return
-
-    with st.container(border=True):
-
-        st.markdown(
-            '<div class="surface-title">'
-            'Masuk sebagai administrator'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.caption(
-            "Akses kotak surat hanya tersedia untuk admin yang terautentikasi."
-        )
-
-        with st.form("admin_login_form"):
-
-            password = st.text_input(
-                "Password admin",
-                type="password",
-                max_chars=256,
-            )
-
-            login = st.form_submit_button(
-                "Masuk ke panel admin",
-                type="primary",
-                use_container_width=True,
-            )
-
-        if login:
-
-            if verify_admin_password(
-                password,
-                password_hash,
-            ):
-
-                st.session_state[
-                    "admin_authenticated"
-                ] = True
-
-                st.session_state[
-                    "admin_failed_attempts"
-                ] = 0
-
-                st.rerun()
-
-            else:
-
-                attempts = (
-                    int(
-                        st.session_state.get(
-                            "admin_failed_attempts",
-                            0,
-                        )
-                    )
-                    + 1
-                )
-
-                st.session_state[
-                    "admin_failed_attempts"
-                ] = attempts
-
-                st.error(
-                    "Password admin salah."
-                )
-
-                if attempts >= 5:
-
-                    st.session_state[
-                        "admin_lock_until"
-                    ] = time.time() + 60
-
-                    st.session_state[
-                        "admin_failed_attempts"
-                    ] = 0
-
-
-# =========================================================
-# ADMIN
-# =========================================================
-
-def render_admin(model, vectorizer) -> None:
+def render_admin_page():
 
     page_heading(
-        "PANEL KONTROL ADMIN",
-        "Ringkasan kotak surat",
-        "Pantau email yang diperiksa MailGuard. Seluruh data "
-        "kotak surat hanya tersedia untuk admin.",
+        "PANEL ADMIN",
+        "Kotak Surat",
+        "Kelola email yang telah diperiksa oleh sistem.",
     )
 
     if not st.session_state.get(
@@ -1478,24 +1719,26 @@ def render_admin(model, vectorizer) -> None:
         False,
     ):
 
-        _render_admin_login()
+        render_admin_login()
 
         return
 
-    top_left, top_right = st.columns(
-        [0.78, 0.22]
+    header_left, header_right = st.columns(
+        [0.8, 0.2]
     )
 
-    with top_left:
+    with header_left:
 
         st.markdown(
-            '<span class="pill pill-ham">'
-            '● SESI ADMIN AKTIF'
-            '</span>',
+            """
+            <span class="pill pill-ham">
+                ● ADMIN AKTIF
+            </span>
+            """,
             unsafe_allow_html=True,
         )
 
-    with top_right:
+    with header_right:
 
         if st.button(
             "Keluar",
@@ -1507,7 +1750,7 @@ def render_admin(model, vectorizer) -> None:
             ] = False
 
             st.session_state.pop(
-                "admin_selected_message",
+                "selected_message",
                 None,
             )
 
@@ -1517,9 +1760,17 @@ def render_admin(model, vectorizer) -> None:
 
         counts = get_counts()
 
-        total = counts["total"]
-        ham = counts["ham"]
-        spam = counts["spam"]
+        total = counts[
+            "total"
+        ]
+
+        ham = counts[
+            "ham"
+        ]
+
+        spam = counts[
+            "spam"
+        ]
 
         ham_pct = (
             ham / total * 100
@@ -1533,141 +1784,106 @@ def render_admin(model, vectorizer) -> None:
             else 0
         )
 
-        metric_cols = st.columns(
-            3,
-            gap="medium",
+        st.write("")
+
+        c1, c2, c3 = st.columns(
+            3
         )
 
-        with metric_cols[0]:
+        with c1:
 
             st.markdown(
-                f'<div class="metric-card">'
-                f'<div class="metric-label">'
-                f'Total diperiksa'
-                f'</div>'
+                f"""
+                <div class="metric-card">
 
-                f'<div class="metric-value">'
-                f'{total:,}'
-                f'</div>'
+                    <div class="metric-label">
+                        Total Email
+                    </div>
 
-                f'<div class="metric-foot">'
-                f'Seluruh pesan tersimpan'
-                f'</div>'
+                    <div class="metric-value">
+                        {total:,}
+                    </div>
 
-                f'</div>',
+                    <div class="metric-help">
+                        Semua pesan
+                    </div>
+
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
 
-        with metric_cols[1]:
+        with c2:
 
             st.markdown(
-                f'<div class="metric-card">'
-                f'<div class="metric-label">'
-                f'Kotak Masuk · HAM'
-                f'</div>'
+                f"""
+                <div class="metric-card">
 
-                f'<div class="metric-value" '
-                f'style="color:#168453">'
-                f'{ham:,}'
-                f'</div>'
+                    <div class="metric-label">
+                        Kotak Masuk
+                    </div>
 
-                f'<div class="metric-foot">'
-                f'{ham_pct:.1f}% dari seluruh pesan'
-                f'</div>'
+                    <div class="metric-value"
+                         style="color:#168453">
+                        {ham:,}
+                    </div>
 
-                f'</div>',
+                    <div class="metric-help">
+                        {ham_pct:.1f}% dari email
+                    </div>
+
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
 
-        with metric_cols[2]:
+        with c3:
 
             st.markdown(
-                f'<div class="metric-card">'
-                f'<div class="metric-label">'
-                f'Spam terdeteksi'
-                f'</div>'
+                f"""
+                <div class="metric-card">
 
-                f'<div class="metric-value" '
-                f'style="color:#c43845">'
-                f'{spam:,}'
-                f'</div>'
+                    <div class="metric-label">
+                        Spam
+                    </div>
 
-                f'<div class="metric-foot">'
-                f'{spam_pct:.1f}% dari seluruh pesan'
-                f'</div>'
+                    <div class="metric-value"
+                         style="color:#c43845">
+                        {spam:,}
+                    </div>
 
-                f'</div>',
+                    <div class="metric-help">
+                        {spam_pct:.1f}% dari email
+                    </div>
+
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
 
         st.write("")
-
-        st.markdown(
-            '<div class="surface">'
-            '<div class="surface-title">'
-            'Distribusi klasifikasi'
-            '</div>'
-
-            '<div class="surface-copy">'
-            'Proporsi label dari seluruh email yang tersimpan di database.'
-            '</div>'
-
-            f'<div class="dist-track">'
-            f'<div class="dist-ham" '
-            f'style="width:{ham_pct:.3f}%"></div>'
-
-            f'<div class="dist-spam" '
-            f'style="width:{spam_pct:.3f}%"></div>'
-            f'</div>'
-
-            f'<div class="dist-legend">'
-            f'<span>● HAM&nbsp; {ham:,} ({ham_pct:.1f}%)</span>'
-
-            f'<span style="color:#c43845">'
-            f'● SPAM&nbsp; {spam:,} ({spam_pct:.1f}%)'
-            f'</span>'
-
-            f'</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.caption(
-            f"Penyimpanan terhubung: {get_backend_name()} · "
-            f"Tampilan dibatasi hingga 500 pesan per folder."
-        )
-
-        st.write("")
-
-        st.markdown(
-            '<div class="surface-title">'
-            'Kotak Surat'
-            '</div>',
-            unsafe_allow_html=True,
-        )
 
         folder = st.radio(
-            "Pilih folder",
+            "Folder",
             [
-                "Semua Email",
                 "Kotak Masuk",
                 "Spam",
+                "Semua Email",
             ],
             horizontal=True,
-            label_visibility="collapsed",
         )
 
         search_col, export_col = st.columns(
-            [0.74, 0.26],
+            [0.76, 0.24],
             vertical_alignment="bottom",
         )
 
         with search_col:
 
             search = st.text_input(
-                "Cari pesan",
+                "Cari",
                 placeholder=(
-                    "Cari pengirim, penerima, subjek, atau isi pesan"
+                    "Cari pengirim, subjek, atau isi pesan..."
                 ),
                 label_visibility="collapsed",
             )
@@ -1684,114 +1900,172 @@ def render_admin(model, vectorizer) -> None:
 
                 st.download_button(
                     "Unduh CSV",
-                    data=_build_csv(
+                    data=build_csv(
                         messages
-                    ).encode("utf-8-sig"),
-
-                    file_name=(
-                        f"mailguard_"
-                        f"{folder.lower().replace(' ', '_')}"
-                        f".csv"
+                    ).encode(
+                        "utf-8-sig"
                     ),
-
+                    file_name=(
+                        "email_detection_"
+                        f"{folder.lower().replace(' ', '_')}"
+                        ".csv"
+                    ),
                     mime="text/csv",
                     use_container_width=True,
                 )
 
         st.caption(
-            f"{len(messages):,} pesan ditemukan"
+            f"{len(messages):,} email ditemukan"
         )
 
-        if messages:
+        if not messages:
 
-            pane_list, pane_detail = st.columns(
-                [0.95, 1.25],
-                gap="large",
+            st.info(
+                "Belum ada email pada folder ini."
             )
 
-            message_options = [
-                message["id"]
-                for message in messages
-            ]
+            return
 
-            current = st.session_state.get(
-                "admin_selected_message"
-            )
+        st.write("")
+
+        list_col, detail_col = st.columns(
+            [1, 1.25],
+            gap="large",
+        )
+
+        ids = [
+            message["id"]
+            for message in messages
+        ]
+
+        current = st.session_state.get(
+            "selected_message"
+        )
+
+        if current in ids:
 
             selected_index = (
-                message_options.index(current)
-                if current in message_options
-                else 0
+                ids.index(
+                    current
+                )
             )
-
-            with pane_list:
-
-                st.markdown(
-                    '<div class="surface-title">'
-                    'Daftar pesan'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
-
-                selected_id = st.radio(
-                    "Pilih pesan",
-                    message_options,
-                    index=selected_index,
-
-                    format_func=lambda mid: next(
-                        (
-                            f"{'🚨' if m['predicted_label'] == 'SPAM' else '✉️'}  "
-                            f"{str(m.get('sender_name') or m.get('sender_email'))[:28]} · "
-                            f"{str(m.get('subject') or '(Tanpa subjek)')[:48]}"
-                            for m in messages
-                            if m["id"] == mid
-                        ),
-                        str(mid),
-                    ),
-
-                    label_visibility="collapsed",
-                )
-
-                st.session_state[
-                    "admin_selected_message"
-                ] = selected_id
-
-            with pane_detail:
-
-                selected_message = get_message(
-                    selected_id
-                )
-
-                if selected_message:
-
-                    st.markdown(
-                        '<div class="surface-title">'
-                        'Panel baca'
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                    render_message_detail(
-                        selected_message,
-                        allow_delete=True,
-                    )
 
         else:
 
-            st.info(
-                "Kotak Surat kosong untuk folder ini. "
-                "Email yang dikirim melalui halaman publik "
-                "akan muncul di sini."
+            selected_index = 0
+
+        with list_col:
+
+            st.markdown(
+                """
+                <div class="card-title">
+                    Daftar Email
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            selected_id = st.radio(
+                "Email",
+                ids,
+                index=selected_index,
+
+                format_func=lambda mid: next(
+                    (
+                        f"{'⚠️' if m['predicted_label'] == 'SPAM' else '✉️'}  "
+                        f"{str(m.get('sender_name') or m.get('sender_email'))[:25]} · "
+                        f"{str(m.get('subject') or '(Tanpa subjek)')[:42]}"
+                        for m in messages
+                        if m["id"] == mid
+                    ),
+                    str(mid),
+                ),
+
+                label_visibility="collapsed",
+            )
+
+            st.session_state[
+                "selected_message"
+            ] = selected_id
+
+        with detail_col:
+
+            message = get_message(
+                selected_id
+            )
+
+            if message:
+
+                render_email_detail(
+                    message
+                )
+
+                st.write("")
+
+                confirm = st.checkbox(
+                    "Saya yakin ingin menghapus email ini",
+                    key=f"confirm_{selected_id}",
+                )
+
+                if st.button(
+                    "Hapus Email",
+                    key=f"delete_{selected_id}",
+                ):
+
+                    if confirm:
+
+                        delete_message(
+                            selected_id
+                        )
+
+                        st.session_state.pop(
+                            "selected_message",
+                            None,
+                        )
+
+                        st.success(
+                            "Email berhasil dihapus."
+                        )
+
+                        st.rerun()
+
+                    else:
+
+                        st.warning(
+                            "Centang konfirmasi terlebih dahulu."
+                        )
+
+        st.write("")
+
+        with st.expander(
+            "Informasi teknis sistem"
+        ):
+
+            st.markdown(
+                """
+                **Algoritma:** Logistic Regression  
+                **Ekstraksi fitur:** TF-IDF  
+                **Konfigurasi model:** C = 10  
+                **Jumlah fitur:** 5.000  
+                **Penyimpanan:** Supabase  
+                **Fungsi:** klasifikasi email HAM/SPAM
+                """
+            )
+
+            st.caption(
+                "Informasi teknis ini ditampilkan di area admin "
+                "agar tidak mengganggu pengalaman pengguna biasa."
             )
 
     except Exception as exc:
 
         st.error(
-            "Panel admin gagal membaca database. "
-            "Periksa konfigurasi dan skema Supabase."
+            "Panel admin gagal membaca data."
         )
 
-        st.caption(str(exc))
+        st.caption(
+            str(exc)
+        )
 
 
 # =========================================================
@@ -1802,16 +2076,20 @@ try:
 
     init_db()
 
-    model, vectorizer = get_model_artifacts()
+    model, vectorizer = (
+        get_model_artifacts()
+    )
 
 except Exception as exc:
 
     st.error(
-        "MailGuard belum dapat dijalankan. "
-        "Periksa model dan konfigurasi database aplikasi."
+        "Aplikasi belum dapat dijalankan. "
+        "Periksa konfigurasi model dan database."
     )
 
-    st.caption(str(exc))
+    st.caption(
+        str(exc)
+    )
 
     st.stop()
 
@@ -1823,35 +2101,56 @@ except Exception as exc:
 with st.sidebar:
 
     st.markdown(
-        '<div class="brand-wrap">'
-        '<div class="brand-icon">✉</div>'
-        '<div>'
-        '<div class="brand-title">MailGuard</div>'
-        '<div class="brand-sub">'
-        'Kelompok 6 · AI Email'
-        '</div>'
-        '</div>'
-        '</div>',
+        """
+        <div class="brand">
+
+            <div class="brand-icon">
+                ✉
+            </div>
+
+            <div>
+
+                <div class="brand-name">
+                    Email Detection
+                </div>
+
+                <div class="brand-sub">
+                    Kelompok 6
+                </div>
+
+            </div>
+
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
     st.markdown(
-        '<div class="sidebar-label">Menu</div>',
+        """
+        <div class="nav-label">
+            Menu
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
     page = st.radio(
-        "Navigasi aplikasi",
+        "Navigasi",
         [
-            "Kirim Email",
+            "Tulis Email",
             "Lacak Pesan",
             "Panel Admin",
         ],
 
         format_func=lambda value: {
-            "Kirim Email": "✏️  Tulis Email",
-            "Lacak Pesan": "🔎  Lacak Pesan",
-            "Panel Admin": "🛡️  Panel Admin",
+            "Tulis Email":
+                "✏️  Tulis Email",
+
+            "Lacak Pesan":
+                "🔎  Lacak Pesan",
+
+            "Panel Admin":
+                "⚙️  Panel Admin",
         }[value],
 
         label_visibility="collapsed",
@@ -1860,34 +2159,25 @@ with st.sidebar:
     st.divider()
 
     st.markdown(
-        '<div class="sidebar-label">'
-        'Mesin Deteksi'
-        '</div>',
+        """
+        <div class="nav-label">
+            Tentang Aplikasi
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        "**Logistic Regression**"
-    )
-
     st.caption(
-        "C = 10 · TF-IDF · 5.000 fitur"
-    )
-
-    st.caption(
-        "Dataset pelatihan: Enron · Bahasa Inggris"
+        "Email Detection merupakan aplikasi "
+        "pemeriksaan email berbasis machine learning "
+        "yang dikembangkan untuk proyek Kelompok 6."
     )
 
     st.divider()
 
-    st.markdown(
-        '<div class="privacy-note">'
-        '<b>Pengingat privasi</b><br>'
-        'Jangan mengirim password, OTP, data keuangan, atau '
-        'informasi sensitif. MailGuard adalah simulasi '
-        'penyaringan email, bukan layanan pengiriman email sungguhan.'
-        '</div>',
-        unsafe_allow_html=True,
+    st.caption(
+        "Jangan masukkan password, OTP, data kartu, "
+        "atau informasi sensitif."
     )
 
 
@@ -1896,24 +2186,27 @@ with st.sidebar:
 # =========================================================
 
 st.markdown(
-    '<div class="topbar">'
-    '<div>'
+    """
+    <div class="topbar">
 
-    '<div class="topbar-title">'
-    'MailGuard Mail'
-    '</div>'
+        <div>
 
-    '<div class="topbar-sub">'
-    'Ruang pemeriksaan email · Deteksi spam otomatis'
-    '</div>'
+            <div class="topbar-title">
+                Email Detection
+            </div>
 
-    '</div>'
+            <div class="topbar-sub">
+                Pemeriksaan email dan penyaringan spam
+            </div>
 
-    '<div class="topbar-badge">'
-    '● MODEL SIAP&nbsp; · &nbsp;KELOMPOK 6'
-    '</div>'
+        </div>
 
-    '</div>',
+        <div class="active-badge">
+            ● SISTEM AKTIF
+        </div>
+
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -1922,23 +2215,20 @@ st.markdown(
 # ROUTING
 # =========================================================
 
-if page == "Kirim Email":
+if page == "Tulis Email":
 
-    render_public_send(
+    render_send_page(
         model,
         vectorizer,
     )
 
 elif page == "Lacak Pesan":
 
-    render_public_status()
+    render_tracking_page()
 
 else:
 
-    render_admin(
-        model,
-        vectorizer,
-    )
+    render_admin_page()
 
 
 # =========================================================
@@ -1948,8 +2238,6 @@ else:
 st.divider()
 
 st.caption(
-    "MailGuard · Proyek Aplikasi Machine Learning · "
-    "Kelompok 6 · Logistic Regression (C=10). "
-    "Prediksi merupakan bantuan penyaringan, bukan jaminan "
-    "bahwa email aman."
+    "Email Detection · Proyek Aplikasi Pembelajaran Mesin · "
+    "Kelompok 6 · Logistic Regression"
 )
