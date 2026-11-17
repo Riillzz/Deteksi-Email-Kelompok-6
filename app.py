@@ -694,7 +694,7 @@ with st.sidebar:
     )
 
 st.markdown(
-    '<div class="topbar"><div><div class="topbar-title">MailGuard Mail</div>'
+    '<div class="topbar"><div><div class="topbar-title">Mail Detection</div>'
     '<div class="topbar-sub">Email screening workspace · Automatic spam detection</div></div>'
     '<div class="topbar-badge">● MODEL READY&nbsp; · &nbsp;GROUP 06</div></div>',
     unsafe_allow_html=True,
