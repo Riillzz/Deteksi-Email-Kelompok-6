@@ -2228,7 +2228,7 @@ elif page == "Lacak Pesan":
 
 else:
 
-    render_admin_page()
+    render_admin_page() 
 
 
 # =========================================================
